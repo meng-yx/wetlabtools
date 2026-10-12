@@ -9,6 +9,29 @@ import pandas as pd
 
 from wetlabtools.plate import Plate
 
+# Canonical vector order. The names must match exactly, because they map to fixed positions
+# on the Fluent worktable. The order is also used to break ties when assigning destination
+# wells, so a plate layout does not depend on the row order of the input plate map.
+ALLOWED_VECTORS = ['LM670', 'LM627', 'PHLSEC', 'PHLSEC_FC',
+                   'CUSTOM_VECTOR_1', 'CUSTOM_VECTOR_2', 'CUSTOM_VECTOR_3']
+
+
+def _sort_reactions(df):
+    """Order reactions by source well, then by vector.
+
+    Sorting on the source well alone leaves ties whenever one source well feeds several
+    reactions, e.g. the same insert cloned into two vectors. Those ties were previously
+    broken by an unstable sort, so which vector landed in which destination well was
+    arbitrary and could differ between two sorts of the same data. Vector is therefore an
+    explicit secondary key, and the sort is stable, which makes the layout a function of
+    the data rather than of the input row order.
+    """
+    order = {v: i for i, v in enumerate(ALLOWED_VECTORS)}
+    return (df.assign(_vector_order=df['Vector'].map(order))
+              .sort_values(by=['src_numerical', '_vector_order'], kind='mergesort')
+              .drop(columns='_vector_order'))
+
+
 def make_cloning_worklists(df, rxn, settings):
     """
     Function to create all required worklist files for golden gate or gibson assemblies.
@@ -21,7 +44,7 @@ def make_cloning_worklists(df, rxn, settings):
     vectors = rxn_df["Vector"].unique()
 
     # sort dataframe by source well index and assign destination well index
-    rxn_df.sort_values(by='src_numerical', ascending=True, inplace=True)
+    rxn_df = _sort_reactions(rxn_df)
     rxn_df['dest_numerical'] = range(1, len(rxn_df) + 1)
     rxn_df['dest_label'] = settings['dest_rack_label']
 
@@ -125,11 +148,9 @@ def make_cloning_worklists_from_twist(plate_map_path: str, gwl_output: str, caut
     :type cautios: bool
     """
     
-    # vector names must match exactly to ensure compatibility with worktable
-    ALLOWED_VECTORS = ['LM670', 'LM627', 'PHLSEC', 'PHLSEC_FC', 'CUSTOM_VECTOR_1', 'CUSTOM_VECTOR_2', 'CUSTOM_VECTOR_3']
     CLONING_METHODS = ['GGA', 'GIBSON']
     TRANSFORMATION_STRAINS = ['HB101', 'T7EXPRESS', 'NEBSTABLE', 'DH5A', 'BL21', 'CUSTOM_STRAIN_1', 'CUSTOM_STRAIN_2', 'CUSTOM_STRAIN_3']
-    VERSION = 0.4
+    VERSION = 0.5
     
     # mapping alpha-numerical well indices to numerical indices
     rows = list("ABCDEFGH")
@@ -212,7 +233,7 @@ def make_cloning_worklists_from_twist(plate_map_path: str, gwl_output: str, caut
 
     # ensure order from Twist plate
     cloning_df = pd.concat([gga_df, gib_df], ignore_index=True)
-    cloning_df.sort_values(by='src_numerical', inplace=True)
+    cloning_df = _sort_reactions(cloning_df)
     
     ### TRANSFORMATION ###
     transformations = []
@@ -280,19 +301,35 @@ def make_cloning_worklists_from_twist(plate_map_path: str, gwl_output: str, caut
 
     if n_transform_1 > 0:
         trf_1_map_xlsx = os.path.join(gwl_output, plate_id, f"{plate_id}_transform_1_plate_map.xlsx")
-        trf_1_map = transform_1_df[['Name', 'Transform', 'dest_numerical']].copy()
+        # Vector and the originating assembly well are carried across: a transformation
+        # plate is re-indexed over only the wells being transformed, so its layout need not
+        # match the assembly plate and cannot be read off the GGA plate map.
+        trf_1_map = transform_1_df[['Name', 'Vector', 'Transform', 'src_label',
+                                    'src_numerical', 'dest_numerical']].copy()
         trf_1_map['Well Location'] = trf_1_map['dest_numerical'].map(to_alphanumerical)
+        trf_1_map['Source Well'] = trf_1_map['src_numerical'].map(to_alphanumerical)
+        # A mixed GGA/Gibson run draws from two assembly plates, so the source well alone
+        # is ambiguous without naming the plate it came from.
+        trf_1_map.rename({'src_label': 'Source Plate'}, inplace=True, axis=1)
         trf_1_map.rename({'Transform': 'Strain'}, inplace=True, axis=1)
-        trf_1_map.drop('dest_numerical', inplace=True, axis=1)
+        trf_1_map.drop(['dest_numerical', 'src_numerical'], inplace=True, axis=1)
         plate = Plate.from_long_dataframe(trf_1_map)
         plate.to_plate_map_excel(trf_1_map_xlsx)
     
     if n_transform_2 > 0:
         trf_2_map_xlsx = os.path.join(gwl_output, plate_id, f"{plate_id}_transform_2_plate_map.xlsx")
-        trf_2_map = transform_2_df[['Name', 'Transform', 'dest_numerical']].copy()
+        # Vector and the originating assembly well are carried across: a transformation
+        # plate is re-indexed over only the wells being transformed, so its layout need not
+        # match the assembly plate and cannot be read off the GGA plate map.
+        trf_2_map = transform_2_df[['Name', 'Vector', 'Transform', 'src_label',
+                                    'src_numerical', 'dest_numerical']].copy()
         trf_2_map['Well Location'] = trf_2_map['dest_numerical'].map(to_alphanumerical)
+        trf_2_map['Source Well'] = trf_2_map['src_numerical'].map(to_alphanumerical)
+        # A mixed GGA/Gibson run draws from two assembly plates, so the source well alone
+        # is ambiguous without naming the plate it came from.
+        trf_2_map.rename({'src_label': 'Source Plate'}, inplace=True, axis=1)
         trf_2_map.rename({'Transform': 'Strain'}, inplace=True, axis=1)
-        trf_2_map.drop('dest_numerical', inplace=True, axis=1)
+        trf_2_map.drop(['dest_numerical', 'src_numerical'], inplace=True, axis=1)
         plate = Plate.from_long_dataframe(trf_2_map)
         plate.to_plate_map_excel(trf_2_map_xlsx)
 
