@@ -150,7 +150,13 @@ def make_cloning_worklists_from_twist(plate_map_path: str, gwl_output: str, caut
     
     CLONING_METHODS = ['GGA', 'GIBSON']
     TRANSFORMATION_STRAINS = ['HB101', 'T7EXPRESS', 'NEBSTABLE', 'DH5A', 'BL21', 'CUSTOM_STRAIN_1', 'CUSTOM_STRAIN_2', 'CUSTOM_STRAIN_3']
-    VERSION = 0.5
+    # The FluentControl method imports this file and gates on it exactly:
+    #   If  worklisting_version <> 0.4  ->  Raise Error (NonRecoverable)
+    # So this is a contract describing the FILE FORMAT the method consumes - the 20 columns
+    # below and the .gwl record layouts - not a changelog of behaviour. Bump it only when
+    # that format changes, and only together with the method's check, or every run aborts
+    # before the first pipetting step.
+    VERSION = 0.4
     
     # mapping alpha-numerical well indices to numerical indices
     rows = list("ABCDEFGH")
@@ -289,7 +295,7 @@ def make_cloning_worklists_from_twist(plate_map_path: str, gwl_output: str, caut
         gga_map['Well Location'] = gga_map['dest_numerical'].map(to_alphanumerical)
         gga_map.drop('dest_numerical', inplace=True, axis=1)
         plate = Plate.from_long_dataframe(gga_map)
-        plate.to_plate_map_excel(gga_map_xlsx)
+        plate.to_plate_map_excel(gga_map_xlsx, properties=['Name', 'Vector'])
 
     if n_gib > 0:
         gib_map_xlsx = os.path.join(gwl_output, plate_id, f"{plate_id}_gibson_plate_map.xlsx")
@@ -297,7 +303,7 @@ def make_cloning_worklists_from_twist(plate_map_path: str, gwl_output: str, caut
         gib_map['Well Location'] = gib_map['dest_numerical'].map(to_alphanumerical)
         gib_map.drop('dest_numerical', inplace=True, axis=1)
         plate = Plate.from_long_dataframe(gib_map)
-        plate.to_plate_map_excel(gib_map_xlsx)
+        plate.to_plate_map_excel(gib_map_xlsx, properties=['Name', 'Vector'])
 
     if n_transform_1 > 0:
         trf_1_map_xlsx = os.path.join(gwl_output, plate_id, f"{plate_id}_transform_1_plate_map.xlsx")
@@ -314,7 +320,9 @@ def make_cloning_worklists_from_twist(plate_map_path: str, gwl_output: str, caut
         trf_1_map.rename({'Transform': 'Strain'}, inplace=True, axis=1)
         trf_1_map.drop(['dest_numerical', 'src_numerical'], inplace=True, axis=1)
         plate = Plate.from_long_dataframe(trf_1_map)
-        plate.to_plate_map_excel(trf_1_map_xlsx)
+        plate.to_plate_map_excel(trf_1_map_xlsx,
+                                 properties=['Name', 'Vector', 'Strain',
+                                             'Source Plate', 'Source Well'])
     
     if n_transform_2 > 0:
         trf_2_map_xlsx = os.path.join(gwl_output, plate_id, f"{plate_id}_transform_2_plate_map.xlsx")
@@ -331,7 +339,9 @@ def make_cloning_worklists_from_twist(plate_map_path: str, gwl_output: str, caut
         trf_2_map.rename({'Transform': 'Strain'}, inplace=True, axis=1)
         trf_2_map.drop(['dest_numerical', 'src_numerical'], inplace=True, axis=1)
         plate = Plate.from_long_dataframe(trf_2_map)
-        plate.to_plate_map_excel(trf_2_map_xlsx)
+        plate.to_plate_map_excel(trf_2_map_xlsx,
+                                 properties=['Name', 'Vector', 'Strain',
+                                             'Source Plate', 'Source Well'])
 
     # print summary for user
     summary_df = pd.read_csv(cloning_summary_file)
